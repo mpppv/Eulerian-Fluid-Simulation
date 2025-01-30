@@ -28,7 +28,7 @@
 #define GRAVITY             9.81
 #define DENSITY             1000
 
-#define CONVERGENCE_N       1
+#define CONVERGENCE_N       100
 #define OVERRELAXATION      1.9
 
 typedef struct{
@@ -98,7 +98,7 @@ int main(void) {
                     mouse_x = mouse_x/CELL_SIZE;
                     mouse_y = (mouse_y < radius)? radius : ((mouse_y >= rows - radius)? rows - radius - 1 : mouse_y);
                     for (int i = mouse_y - radius; i < mouse_y + radius + 1; ++i) 
-                        cells[i][mouse_x].u += 10000000;
+                        cells[i][mouse_x].v += 10000000;
                 }
                 else
                     update_obj(mouse_x/CELL_SIZE, rows - mouse_y/CELL_SIZE);
@@ -111,7 +111,7 @@ int main(void) {
         //add_gravity();
         for(int i = 0; i < CONVERGENCE_N; ++i)
             projection();
-        for(int i = 0; i < CONVERGENCE_N; ++i)
+        //for(int i = 0; i < CONVERGENCE_N; ++i)
             advection();
         
         
@@ -179,7 +179,7 @@ void add_gravity(void){
     for(int i = 0; i < rows; ++i)
         for(int j = 0; j < columns; ++j)
             if(cells[i][j].is_liquid)
-                cells[i][j].v -= g_accel_step;
+                cells[i][j].v += g_accel_step;
 }
 
 void projection(void){
@@ -199,18 +199,19 @@ void projection(void){
                     d = cells[i][j+1].u - cells[i][j].u + cells[i+1][j].v - cells[i][j].v;
                 d *= OVERRELAXATION;
                 
-                s1 = (i > 0)            ;//&& cells[i-1][j].is_liquid;
-                s2 = (i < rows-1)       ;//&& cells[i+1][j].is_liquid;
-                s3 = (j > 0)            ;//&& cells[i][j-1].is_liquid;
-                s4 = (j < columns-1)    ;//&& cells[i][j+1].is_liquid;
+                s1 = (i > 0)? 1 : 0            ;//&& cells[i-1][j].is_liquid;
+                s2 = (i < rows-1) ? 1 : 0       ;//&& cells[i+1][j].is_liquid;
+                s3 = (j > 0)  ? 1 : 0           ;//&& cells[i][j-1].is_liquid;
+                s4 = (j < columns-1) ? 1 : 0    ;//&& cells[i][j+1].is_liquid;
                 s = s1 + s2 + s3 + s4;
+                if(s) continue;
                 
-                if(s1) cells[i][j].v -= d * (s1 / s);
-                if(s2 && cells[i+1][j].is_liquid) cells[i+1][j].v += d * (s2 / s);
-                if(s3) cells[i][j].u -= d * (s3 / s);
-                if(s4 && cells[i][j+1].is_liquid) cells[i][j+1].u += d * (s4 / s);
+                if(s1 == 1) cells[i][j].v -= d / s;
+                if((s2 == 1) && cells[i+1][j].is_liquid) cells[i+1][j].v += d / s;
+                if(s3 == 1) cells[i][j].u -= d / s;
+                if((s4 == 1) && cells[i][j+1].is_liquid) cells[i][j+1].u += d / s;
                 
-                if(s) cells[i][j].p += d * ds / s;
+                cells[i][j].p += d * ds / s;
             }
 }
 
