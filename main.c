@@ -16,18 +16,20 @@
 #define WINDOW_WIDTH        900
 #define WINDOW_HEIGHT       900
 
-#define CELL_SIZE           10
+#define SPHERE_RAD          50
+
+#define CELL_SIZE           5
 #define DRAW_GRID           false
 #define LINE_WIDTH          2
 #define GRID_COLOR          0x262626
 
 #define CELL_SIZE_M         1 //(CELL_SIZE / WINDOW_WIDTH)
-#define TIME_STEP_HZ        20
+#define TIME_STEP_HZ        10
 #define GRAVITY             9.81
 #define DENSITY             1000
 
 #define CONVERGENCE_N       100
-#define OVERRELAXATION      1.9
+#define OVERRELAXATION      1.8
 
 typedef struct{
     bool is_liquid;
@@ -59,6 +61,7 @@ void advection(void);
 void draw_grid(SDL_Surface* surface);
 void draw_cell(SDL_Surface* surface, int x, int y, Uint32 color);
 void draw_cells(SDL_Surface* surface);
+void draw_sphere(SDL_Surface* surface);
 
 
 SDL_Rect black_rect = (SDL_Rect){0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
@@ -68,7 +71,7 @@ cell copy[WINDOW_HEIGHT / CELL_SIZE][WINDOW_WIDTH / CELL_SIZE];
 
 int rows = WINDOW_HEIGHT / CELL_SIZE;
 int columns = WINDOW_WIDTH / CELL_SIZE;
-int radius = 45 / CELL_SIZE;
+int radius = SPHERE_RAD / CELL_SIZE;
 double cell_per_s = CELL_SIZE_M * TIME_STEP_HZ;
 double g_accel_step = GRAVITY / TIME_STEP_HZ;
 
@@ -116,6 +119,7 @@ int main(void) {
         SDL_FillRect(surface, &black_rect, COLOR_BLACK);
         draw_cells(surface);
         //if(DRAW_GRID) draw_grid(surface);
+        draw_sphere(surface);
         
         SDL_UpdateWindowSurface(window);
         SDL_Delay(17);
@@ -312,7 +316,7 @@ void draw_cell(SDL_Surface* surface, int x, int y, Uint32 color){
 void draw_cells(SDL_Surface* surface){
     Uint32 color;
     int pressure, velocity;
-    int x_max, y_max, x_min, y_min;
+    //int x_max = 0, y_max = 0, x_min = 0, y_min = 0;
     double vel, cos_v;
     double min = 1.797693e+308, max = -1.797693e+308;
     if(PRESSURE_MODE){
@@ -327,61 +331,79 @@ void draw_cells(SDL_Surface* surface){
         for(int i = 1; i < rows-1; ++i){
             for(int j = 1; j < columns-1; ++j){
                 if(!cells[i][j].is_liquid) continue;
-                if(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u > max){ max = cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u; x_max= j; y_max = i;}
-                else if(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u < min){ min = cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u; x_min= j; y_min = i;}
+                if(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u > max){ max = cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u;} //x_max= j; y_max = i;}
+                else if(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u < min){ min = cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u;} //x_min= j; y_min = i;}
             }
         }
         max = sqrt(max); min = sqrt(min);
     }
     double d = max - min;
-    printf("%f,\t%f\n", max, min);
     for(int i = 1; i < rows-1; ++i){
         for(int j = 1; j < columns-1; ++j){
-            if(cells[i][j].is_liquid){
-                if(PRESSURE_MODE) {
-                    pressure = 3 * 255 * (cells[i][j].p - min) / d;
-                    if (pressure >= 510)        color = 0xff00ff - pressure + 510;
-                    else if (pressure >= 255)   color = 0x0000ff + ((pressure - 255) << 16);
-                    else                        color = 0x00ffff - (pressure << 8);
-                    draw_cell(surface, j, i, color);
+            if(PRESSURE_MODE) {
+                pressure = 3 * 255 * (cells[i][j].p - min) / d;
+                if (pressure >= 510)        color = 0xff00ff - pressure + 510;
+                else if (pressure >= 255)   color = 0x0000ff + ((pressure - 255) << 16);
+                else                        color = 0x00ffff - (pressure << 8);
+                draw_cell(surface, j, i, color);
+            }
+            else{
+                vel = sqrt(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u);
+                cos_v = cells[i][j].v / vel;
+                velocity = 0xff * (vel) / 100;
+                color = velocity * 2 / 1.1339745962;//(velocity << 16) + (velocity << 8) + velocity;
+                
+                //green
+                if(cells[i][j].u >= 0 && cos_v >= 0){
+                    color *= cos_v;
+                    if(color <= velocity)   color = (velocity << 16) + (color << 8);
+                    else                    color = (velocity << 16)+(velocity << 8) - ((color - velocity) << 16);
+                }
+                else if(cells[i][j].u < 0 && cos_v >= 0.8660254038){ // √3/2
+                    color *= (2 - cos_v);
+                    color = (velocity << 16)+(velocity << 8) - ((color - velocity) << 16);
+                }
+                //blue
+                else if(cells[i][j].u < 0 && cos_v >= -0.8660254038){
+                    color = (0.8660254038 - cos_v) * velocity * 2 / 1.7320508076;
+                    if(color <= velocity)   color = (velocity << 8) + color;
+                    else                    color = (velocity << 8)+velocity - ((color - velocity) << 8);
+                }
+                //red
+                else if(cells[i][j].u < 0){
+                    color *= - (0.8660254038 + cos_v);
+                    color = velocity + (color << 16);
                 }
                 else{
-                    vel = sqrt(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u);
-                    cos_v = cells[i][j].v / vel;
-                    velocity = 0xff * (vel - min) / d;
-                    color = velocity * 2 / 1.1339745962;
-                    //green
-                    if(cells[i][j].u >= 0 && cos_v >= 0){
-                        color *= cos_v;
-                        if(color <= velocity)   color = (velocity << 16) + (color << 8);
-                        else                    color = (velocity << 16)+(velocity << 8) - ((color - velocity) << 16);
-                    }
-                    else if(cells[i][j].u < 0 && cos_v >= 0.8660254038){ // √3/2
-                        color *= (2 - cos_v);
-                        color = (velocity << 16)+(velocity << 8) - ((color - velocity) << 16);
-                    }
-                    //blue
-                    else if(cells[i][j].u < 0 && cos_v >= -0.8660254038){
-                        color = (0.8660254038 - cos_v) * velocity * 2 / 1.7320508076;
-                        if(color <= velocity)   color = (velocity << 8) + (color);
-                        else                    color = (velocity << 8)+(velocity) - ((color - velocity) << 8);
-                    }
-                    //red
-                    else if(cells[i][j].u < 0){
-                        color *= - (0.8660254038 + cos_v);
-                        color = velocity + (color << 16);
-                    }
-                    else{
-                        color *= (1.1339745962 + cos_v);
-                        if(color <= velocity)   color = velocity + (color << 16);
-                        else                    color = (velocity << 16)+(velocity) - (color - velocity);
-                    }
-                    draw_cell(surface, j, i, color);
+                    color *= (1.1339745962 + cos_v);
+                    if(color <= velocity)   color = velocity + (color << 16);
+                    else                    color = (velocity << 16)+velocity - (color - velocity);
                 }
+                
+                draw_cell(surface, j, i, color);
             }
-            else draw_cell(surface, j, i, SOLID_COLOR);
         }
     }
-    draw_cell(surface, x_max, y_max, 0xeb5b5b);
-    draw_cell(surface, x_min, y_min, 0x5bd3eb);
+    //printf("%f,\t%f\n", max, min);
+    //draw_cell(surface, x_max, y_max, 0xeb5b5b);
+    //draw_cell(surface, x_min, y_min, 0x5bd3eb);
+}
+
+void draw_sphere(SDL_Surface* surface) {
+    double rad_sq = (SPHERE_RAD + CELL_SIZE) * (SPHERE_RAD + CELL_SIZE);
+    double rad_sq_obr = (SPHERE_RAD + CELL_SIZE*1.2) * (SPHERE_RAD + CELL_SIZE*1.2);
+    double rad_sq_surp = (SPHERE_RAD + CELL_SIZE*2) * (SPHERE_RAD + CELL_SIZE*2);
+    double dist;
+    int x = obj.x * CELL_SIZE, y = obj.y * CELL_SIZE;
+    for(int i = y - SPHERE_RAD - CELL_SIZE*2; i < y + SPHERE_RAD + CELL_SIZE*2; ++i)
+        for(int j = x - SPHERE_RAD - CELL_SIZE*2; j < x + SPHERE_RAD + CELL_SIZE*2; ++j){
+            dist = (i - y)*(i - y) + (j - x)*(j - x);
+            SDL_Rect pix = (SDL_Rect){(j), (WINDOW_HEIGHT-1-i), 1, 1};
+            if(dist < rad_sq)
+                SDL_FillRect(surface, &pix, 0xf52525);
+            else if(dist <= rad_sq_obr)
+                SDL_FillRect(surface, &pix, 0x8c1818);
+            else if(dist <= rad_sq_surp)
+                SDL_FillRect(surface, &pix, 0x2b0707);
+        }
 }
