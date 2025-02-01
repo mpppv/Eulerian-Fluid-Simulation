@@ -13,23 +13,23 @@
 
 #define PRESSURE_MODE       false
 
-#define WINDOW_WIDTH        900
+#define WINDOW_WIDTH        600
 #define WINDOW_HEIGHT       900
 
 #define SPHERE_RAD          50
 
 #define CELL_SIZE           5
 #define DRAW_GRID           false
-#define LINE_WIDTH          2
+#define LINE_WIDTH          1
 #define GRID_COLOR          0x262626
 
-#define CELL_SIZE_M         1 //(CELL_SIZE / WINDOW_WIDTH)
-#define TIME_STEP_HZ        10
+#define CELL_SIZE_M         1 //((double)CELL_SIZE / (double)WINDOW_WIDTH)
+#define TIME_STEP_HZ        60.0
 #define GRAVITY             9.81
-#define DENSITY             1000
+#define DENSITY             (double)1000
 
-#define CONVERGENCE_N       100
-#define OVERRELAXATION      1.8
+#define CONVERGENCE_N       1
+#define OVERRELAXATION      1
 
 typedef struct{
     bool is_liquid;
@@ -54,7 +54,7 @@ void add_obj_to_cells(void);
 
 void add_gravity(void);
 void extrapolate(void);
-double interpolate(int x, int y, char field);
+double interpolate(double x, double y, char field);
 void projection(void);
 void advection(void);
 
@@ -72,7 +72,8 @@ cell copy[WINDOW_HEIGHT / CELL_SIZE][WINDOW_WIDTH / CELL_SIZE];
 int rows = WINDOW_HEIGHT / CELL_SIZE;
 int columns = WINDOW_WIDTH / CELL_SIZE;
 int radius = SPHERE_RAD / CELL_SIZE;
-double cell_per_s = CELL_SIZE_M * TIME_STEP_HZ;
+double cell_size_m = CELL_SIZE_M;//(double)CELL_SIZE / (double)WINDOW_WIDTH;
+double cell_per_s = TIME_STEP_HZ * (double)CELL_SIZE / (double)WINDOW_WIDTH;
 double g_accel_step = GRAVITY / TIME_STEP_HZ;
 
 
@@ -84,7 +85,6 @@ int main(void) {
                                           WINDOW_WIDTH,           WINDOW_HEIGHT, SDL_WINDOW_METAL);
 
     SDL_Surface* surface = SDL_GetWindowSurface(window);
-
     init_obj();
     init_cells();
     
@@ -94,35 +94,38 @@ int main(void) {
     while(running){
         while(SDL_PollEvent(&event)){
             if(event.type == SDL_QUIT) running = false;
-            else if(event.button.button == SDL_BUTTON_LEFT){
+            else if(event.button.button == SDL_BUTTON_LEFT){//SDL_GetModState() & KMOD_SHIFT
                 SDL_GetMouseState(&mouse_x, &mouse_y);
-                if(SDL_GetModState() & KMOD_SHIFT){
-                    mouse_y = rows - mouse_y/CELL_SIZE;
-                    mouse_x = mouse_x/CELL_SIZE;
-                    mouse_y = (mouse_y < radius)? radius : ((mouse_y >= rows - radius)? rows - radius - 1 : mouse_y);
-                    for (int i = mouse_y - radius; i < mouse_y + radius + 1; ++i) 
-                        cells[i][mouse_x].u += 10;
-                }
-                else
-                    update_obj(mouse_x/CELL_SIZE, rows - mouse_y/CELL_SIZE);
+                update_obj(mouse_x/CELL_SIZE, rows - mouse_y/CELL_SIZE);
             }
         }
         
         add_obj_to_cells();
-
-        add_gravity();
-        for(int i = 0; i < CONVERGENCE_N; ++i)
-            projection();
-        extrapolate();
-        advection();
         
+        add_gravity();
+        for(int i = 0; i < CONVERGENCE_N; ++i){
+            projection();
+        }
+        extrapolate();
+        for(int i = 0; i < CONVERGENCE_N; ++i){
+            advection();
+        }
+//        for(int i = rows-1; i >= 0; --i){
+//        for(int j = 0; j < columns; ++j){
+//        printf("%.2f\t", cells[i][j].v);
+//        }printf("\t\t");
+//        for(int j = 0; j < columns; ++j){
+//        printf("%.2f\t", cells[i][j].u);
+//        }printf("\n"); }printf("\n");
+//        printf("-----------------------------------------------------------------------------------");
+//        printf("-----------------------------------------------------------------------------------\n");
         SDL_FillRect(surface, &black_rect, COLOR_BLACK);
         draw_cells(surface);
         //if(DRAW_GRID) draw_grid(surface);
         draw_sphere(surface);
         
         SDL_UpdateWindowSurface(window);
-        SDL_Delay(17);
+        SDL_Delay(16.67);
     }
 }
 
@@ -137,7 +140,7 @@ void init_obj(void){
     obj.x = columns/2; obj.y = rows/2; obj.v = obj.u = 0;
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < columns; ++j)
-            obj.ocup_cll[i][j] = (i - rows/2)*(i - rows/2) + (j - columns/2)*(j - columns/2) <= radius * radius;
+            obj.ocup_cll[i][j] = (i - rows/2.0)*(i - rows/2.0) + (j - columns/2.0)*(j - columns/2.0) <= radius * radius;
     }
 }
 
@@ -149,8 +152,8 @@ void set_cell_to(cell* cell, bool type, double v, double u){
 }
 
 void update_obj(int x, int y){
-    y = (y < radius + 1)? radius+1 : ((y >= rows    - radius-1)? rows    - radius - 2 : y);
-    x = (x < radius + 1)? radius+1 : ((x >= columns - radius-1)? columns - radius - 2 : x);
+    y = (y < radius + 2)? radius+2 : ((y >= rows    - radius-2)? rows    - radius - 3 : y);
+    x = (x < radius + 2)? radius+2 : ((x >= columns - radius-2)? columns - radius - 3 : x);
     obj.v = (y - obj.y) * cell_per_s;
     obj.u = (x - obj.x) * cell_per_s;
     obj.y = y;
@@ -171,7 +174,7 @@ void add_obj_to_cells(void){
             if(obj.ocup_cll[i][j] && cells[i][j].is_liquid)
                 set_cell_to(&(cells[i][j]), false, obj.v, obj.u);
             else if(!obj.ocup_cll[i][j] && !cells[i][j].is_liquid)
-                set_cell_to(&(cells[i][j]), true, obj.v, obj.u);//(obj.y - cells[i][j].y) * cell_per_s, (obj.x - cells[i][j].x) * cell_per_s);
+                set_cell_to(&(cells[i][j]), true, (double)(obj.y - cells[i][j].y) * cell_per_s, (double)(obj.x - cells[i][j].x) * cell_per_s);
         }
 }
 
@@ -187,59 +190,55 @@ void add_gravity(void){
 void projection(void){
     double d;
     double ds = DENSITY * cell_per_s;
-    int s, s1, s2, s3, s4;
+    int s1, s2, s3, s4;
+    double s;
     for(int i = 1; i < rows-1; ++i) {
         for(int j = 1; j < columns-1; ++j) {
-            if(cells[i][j].is_liquid){
-                d = cells[i][j+1].u - cells[i][j].u + cells[i+1][j].v - cells[i][j].v;
-                d *= OVERRELAXATION;
-                
-                s1 = (i > 0              && cells[i-1][j].is_liquid)? 1 : 0;
-                s2 = (i < rows-1         && cells[i+1][j].is_liquid)? 1 : 0;
-                s3 = (j > 0              && cells[i][j-1].is_liquid)? 1 : 0;
-                s4 = (j < columns-1      && cells[i][j+1].is_liquid)? 1 : 0;
-                s = s1 + s2 + s3 + s4;
-                if(s) continue;
-                
-                if(s1 == 1) cells[i][j].v -= d / s;
-                if(s2 == 1/* && cells[i+1][j].is_liquid*/) cells[i+1][j].v += d / s;
-                if(s3 == 1) cells[i][j].u -= d / s;
-                if(s4 == 1/* && cells[i][j+1].is_liquid*/) cells[i][j+1].u += d / s;
-                
-                cells[i][j].p += d * ds / s;
-            }
+            if(!cells[i][j].is_liquid) continue;
+            
+            d = cells[i][j+1].u - cells[i][j].u + cells[i+1][j].v - cells[i][j].v;
+            d *= OVERRELAXATION;
+            
+            s1 = cells[i-1][j].is_liquid? 1 : 0;
+            s2 = cells[i+1][j].is_liquid? 1 : 0;
+            s3 = cells[i][j-1].is_liquid? 1 : 0;
+            s4 = cells[i][j+1].is_liquid? 1 : 0;
+            s = s1 + s2 + s3 + s4;
+            if(s == 0) continue;
+            
+            if(s1 == 1) cells[i][j].v   -= d / s;
+            if(s2 == 1) cells[i+1][j].v += d / s;
+            if(s3 == 1) cells[i][j].u   -= d / s;
+            if(s4 == 1) cells[i][j+1].u += d / s;
+            //printf("%---.2f\t", d);
+            //printf("(%.2f, %.2f) ", cells[i][j].u, cells[i][j].v);
+            
+            cells[i][j].p += d * ds / s;
         }
+        //printf("\n");
     }
 }
 
 void extrapolate(void) {
     for (int i = 0; i < columns; ++i) {
-        cells[0][i].u = cells[1][i].u;
-        cells[rows - 1][i].u = cells[rows - 2][i].u;
+        cells[0][i].v = cells[1][i].v;
+        cells[rows - 1][i].v = cells[rows - 2][i].v;
     }
     for(int j = 0; j < rows; ++j){
-        cells[j][0].v = cells[j][1].v;
-        cells[j][columns - 1] = cells[j][columns - 2];
+        cells[j][0].u = cells[j][1].u;
+        cells[j][columns - 1].u = cells[j][columns - 2].u;
     }
 }
 
-double interpolate(int x, int y, char field) {
-    double dx = 0, dy = 0;
-    switch (field) {
-        case 'V': dx = CELL_SIZE_M / 2; break;
-        case 'U': dy = CELL_SIZE_M / 2; break;
-        case 'S': dx = dy =  CELL_SIZE_M / 2; break;
-        default: break;
-    }
+double interpolate(double x, double y, char field) {
     
-    //
+    int x0 = floor(x);
+    int y0 = floor(y);
     
-    int x0 = (x-dx)/CELL_SIZE_M < columns-1 ? (x-dx)/CELL_SIZE_M : columns-1;
-    int y0 = (y-dy)/CELL_SIZE_M < rows-1    ? (y-dy)/CELL_SIZE_M : rows-1;
-    
-    int tx = ((x-dx) - x0*CELL_SIZE_M) / CELL_SIZE_M;
-    int ty = ((y-dy) - y0*CELL_SIZE_M) / CELL_SIZE_M;
-    
+    double tx = (x - (double)x0) / cell_size_m;
+    double ty = (y - (double)y0) / cell_size_m;
+    //printf("%.2f,\t%.2f\n", (x - (double)x0) / ((double)CELL_SIZE / (double)WINDOW_WIDTH), ty);
+    //printf("%.2f,\t%.2f\n", x, y);
     int x1 = x0 + 1 < columns-1 ? x0 + 1 : columns-1;
     int y1 = y0 + 1 < rows-1    ? y0 + 1 : rows-1;
     
@@ -262,7 +261,7 @@ double interpolate(int x, int y, char field) {
 
 void advection(void){
     double v_bar, u_bar;
-    int x, y;
+    double x, y;
     
     for (int i = 0; i < rows; ++i)
         for (int j = 0; j < columns; ++j)
@@ -271,22 +270,22 @@ void advection(void){
     
     for (int i = 1; i < rows; ++i) {
         for (int j = 1; j < columns; ++j){
-            if(cells[i][j].is_liquid && i < rows - 1){
-                v_bar = (copy[i][j].v + copy[i][j+1].v + copy[i-1][j].v + copy[i-1][j+1].v) / 4;
+            if(cells[i][j].is_liquid && j < columns - 1){
+                v_bar = (copy[i][j].v + copy[i][j+1].v + copy[i-1][j].v + copy[i-1][j+1].v) * 0.25;
                 
-                x = j * CELL_SIZE_M - copy[i][j].u/TIME_STEP_HZ;
-                y = (i + 0.5) * CELL_SIZE_M -  v_bar/TIME_STEP_HZ;
+                x = j * cell_size_m - copy[i][j].u / TIME_STEP_HZ;
+                y = (i) * cell_size_m - v_bar / TIME_STEP_HZ;
                 y = (y < 0)? 0 : ((y >= rows)?      rows    - 1 : y);
                 x = (x < 0)? 0 : ((x >= columns)?   columns - 1 : x);
                 
                 cells[i][j].u = interpolate(x, y, 'U');
             }
             
-            if(cells[i][j].is_liquid && j < columns - 1){
-                u_bar = (copy[i][j].u + copy[i+1][j].u + copy[i][j-1].u + copy[i+1][j-1].u) / 4;
+            if(cells[i][j].is_liquid && i < rows - 1){
+                u_bar = (copy[i][j].u + copy[i+1][j].u + copy[i][j-1].u + copy[i+1][j-1].u) * 0.25;
                 
-                x = (j + 0.5) * CELL_SIZE_M - u_bar/TIME_STEP_HZ;
-                y = i * CELL_SIZE_M -  copy[i][j].v/TIME_STEP_HZ;
+                x = (j) * cell_size_m - u_bar/TIME_STEP_HZ;
+                y = i * cell_size_m -  copy[i][j].v/TIME_STEP_HZ;
                 y = (y < 0)? 0 : ((y >= rows)?      rows    - 1 : y);
                 x = (x < 0)? 0 : ((x >= columns)?   columns - 1 : x);
                 
@@ -319,6 +318,7 @@ void draw_cells(SDL_Surface* surface){
     //int x_max = 0, y_max = 0, x_min = 0, y_min = 0;
     double vel, cos_v;
     double min = 1.797693e+308, max = -1.797693e+308;
+    double conts = 2 / 1.1339745962;
     if(PRESSURE_MODE){
         for(int i = 1; i < rows-1; ++i){
             for(int j = 1; j < columns-1; ++j){
@@ -338,7 +338,8 @@ void draw_cells(SDL_Surface* surface){
         max = sqrt(max); min = sqrt(min);
     }
     double d = max - min;
-    for(int i = 1; i < rows-1; ++i){
+
+    for(int i = rows - 2; i >= 1; --i){
         for(int j = 1; j < columns-1; ++j){
             if(PRESSURE_MODE) {
                 pressure = 3 * 255 * (cells[i][j].p - min) / d;
@@ -350,8 +351,8 @@ void draw_cells(SDL_Surface* surface){
             else{
                 vel = sqrt(cells[i][j].v * cells[i][j].v + cells[i][j].u * cells[i][j].u);
                 cos_v = cells[i][j].v / vel;
-                velocity = 0xff * (vel) / 100;
-                color = velocity * 2 / 1.1339745962;//(velocity << 16) + (velocity << 8) + velocity;
+                velocity = 0xff;//* (vel - min) / d;
+                color = velocity * conts;//(velocity << 16) + (velocity << 8) + velocity;
                 
                 //green
                 if(cells[i][j].u >= 0 && cos_v >= 0){
@@ -361,7 +362,7 @@ void draw_cells(SDL_Surface* surface){
                 }
                 else if(cells[i][j].u < 0 && cos_v >= 0.8660254038){ // √3/2
                     color *= (2 - cos_v);
-                    color = (velocity << 16)+(velocity << 8) - ((color - velocity) << 16);
+                                            color = (velocity << 16)+(velocity << 8) - ((color - velocity) << 16);
                 }
                 //blue
                 else if(cells[i][j].u < 0 && cos_v >= -0.8660254038){
@@ -372,7 +373,7 @@ void draw_cells(SDL_Surface* surface){
                 //red
                 else if(cells[i][j].u < 0){
                     color *= - (0.8660254038 + cos_v);
-                    color = velocity + (color << 16);
+                                            color = velocity + (color << 16);
                 }
                 else{
                     color *= (1.1339745962 + cos_v);
@@ -384,7 +385,7 @@ void draw_cells(SDL_Surface* surface){
             }
         }
     }
-    //printf("%f,\t%f\n", max, min);
+
     //draw_cell(surface, x_max, y_max, 0xeb5b5b);
     //draw_cell(surface, x_min, y_min, 0x5bd3eb);
 }
